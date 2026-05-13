@@ -5,6 +5,7 @@ jest.mock('../services/orderIngestionService', () => ({
 jest.mock('../repositories/orderRepository', () => ({
   findByOrderIdAcrossShards: jest.fn(),
   findByCustomerId: jest.fn(),
+  countOrdersByShardDatabase: jest.fn(),
 }));
 
 jest.mock('../utils/logger', () => ({
@@ -17,11 +18,13 @@ const { ingestOrdersFile } = require('../services/orderIngestionService');
 const {
   findByOrderIdAcrossShards,
   findByCustomerId,
+  countOrdersByShardDatabase,
 } = require('../repositories/orderRepository');
 const {
   uploadOrders,
   getOrderById,
   getOrdersByCustomer,
+  getOrderCountByShardDatabase,
 } = require('../controllers/orderController');
 
 function mockRes() {
@@ -149,5 +152,52 @@ describe('getOrdersByCustomer', () => {
 
     expect(findByCustomerId).toHaveBeenCalledWith('c99');
     expect(res.json).toHaveBeenCalledWith(rows);
+  });
+});
+
+describe('getOrderCountByShardDatabase', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+  });
+
+  it('returns 400 when database query is missing', async () => {
+    const req = { query: {} };
+    const res = mockRes();
+
+    await getOrderCountByShardDatabase(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(400);
+    expect(countOrdersByShardDatabase).not.toHaveBeenCalled();
+  });
+
+  it('returns count payload when repository resolves', async () => {
+    countOrdersByShardDatabase.mockResolvedValue({
+      shardIndex: 0,
+      database: 'orders_shard_0',
+      count: 100,
+    });
+
+    const req = { query: { database: 'orders_shard_0' } };
+    const res = mockRes();
+
+    await getOrderCountByShardDatabase(req, res);
+
+    expect(countOrdersByShardDatabase).toHaveBeenCalledWith('orders_shard_0');
+    expect(res.json).toHaveBeenCalledWith({
+      database: 'orders_shard_0',
+      shardIndex: 0,
+      count: 100,
+    });
+  });
+
+  it('returns 404 when database does not match any shard', async () => {
+    countOrdersByShardDatabase.mockResolvedValue(null);
+
+    const req = { query: { database: 'nope' } };
+    const res = mockRes();
+
+    await getOrderCountByShardDatabase(req, res);
+
+    expect(res.status).toHaveBeenCalledWith(404);
   });
 });

@@ -76,6 +76,72 @@ const swaggerDocument = {
         },
       },
     },
+    '/orders/count-by-database': {
+      get: {
+        tags: ['Orders'],
+        summary: 'Count orders on one shard',
+        description:
+          'Returns the number of rows in the `orders` table for a single shard. Pass the value in the **`database`** query parameter using **one** of these forms:\n\n' +
+          '1. **Postgres database name** from your connection URL (case-insensitive), e.g. `orders_shard_0`.\n' +
+          '2. **Env variable name** for that shard, e.g. `DB_SHARD_0_URL` (maps to shard index `N`).\n' +
+          '3. **Shard index** as digits only, e.g. `0`, `1`, `2`, `3` (used only if it does not match a database name first).\n\n' +
+          'Response: `database` (resolved Postgres name), `shardIndex`, `count`.',
+        parameters: [
+          {
+            name: 'database',
+            in: 'query',
+            required: true,
+            description:
+              'How to pick the shard: **(1)** Postgres DB name from `DB_SHARD_*_URL` — e.g. `orders_shard_0`. **(2)** Literal env key — e.g. `DB_SHARD_0_URL`. **(3)** Shard index only — e.g. `0` … `3`.',
+            schema: {
+              type: 'string',
+              example: 'DB_SHARD_0_URL',
+            },
+          },
+        ],
+        responses: {
+          '200': {
+            description: 'Shard matched and count returned',
+            content: {
+              'application/json': {
+                schema: {
+                  type: 'object',
+                  properties: {
+                    database: { type: 'string' },
+                    shardIndex: { type: 'integer' },
+                    count: { type: 'integer' },
+                  },
+                },
+              },
+            },
+          },
+          '400': {
+            description: 'Missing database query parameter',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '404': {
+            description: 'No shard matched (unknown DB name, invalid DB_SHARD_N_URL index, or index out of range)',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+          '500': {
+            description: 'Query failed',
+            content: {
+              'application/json': {
+                schema: { $ref: '#/components/schemas/ErrorResponse' },
+              },
+            },
+          },
+        },
+      },
+    },
     '/orders/{orderId}': {
       get: {
         tags: ['Orders'],

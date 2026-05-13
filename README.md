@@ -13,9 +13,10 @@ Backend assessment implementation: ingest an orders file (~10k rows), store the 
 | Data | `order_id`, `customer_id`, `order_date`, `order_amount`, `status` (+ optional `raw_data` in schema). Invalid rows are **skipped**, counted, and **logged**. |
 | Postgres | Four separate databases (application-level sharding), indexes on `customer_id`, `order_date`, `status`. |
 | Scale | File read as a **stream**; inserts in **batches** (500) with a **transaction per shard**; file is not fully loaded into memory. |
-| API | **`POST /upload-orders`** (required). `GET /orders/:orderId`, `GET /orders?customerId=`, `GET /health` are extra. |
+| API | **`POST /upload-orders`** (required). `GET /orders/:orderId`, `GET /orders?customerId=`, **`GET /orders/count-by-database?database=`** (DB name, `DB_SHARD_N_URL`, or index `0`–`3`), `GET /health` are extra. |
+| Tests | **Jest** — `npm test`; specs under `tests/`. |
 
-Deliverables from the brief: **README** (this file), **`schema/schema.sql`**, **`.env.example`**, source in-repo.
+Deliverables from the brief: **README** (this file), **`schema/schema.sql`**, **`.env.example`**, source in-repo. **Jest** unit tests are included under **`tests/`** (assessment bonus area).
 
 ---
 
@@ -55,14 +56,45 @@ Deliverables from the brief: **README** (this file), **`schema/schema.sql`**, **
 5. **Run**
 
    ```bash
-   npm run dev
+   node index.js
    ```
+
+   For file-watch reload on Windows: `npm run dev`.
 
    On startup, Sequelize **`sync()`** creates or updates the `orders` table on each shard. Ensure the DB user can run DDL for that first boot.
 
 6. **Folders** — uploads go to `tmp/`, logs to `logs/`. Create them if the process errors with missing directory.
 
-API docs: **`/api-docs`** (Swagger).
+7. **API docs** — **`/api-docs`** (Swagger).
+
+---
+
+## Tests
+
+Unit tests use **Jest** (`npm test`). Specs live under **`tests/`** (controller, ingestion service, repository, upload, parse, shard helpers).
+
+```bash
+npm test
+```
+
+---
+
+## Project layout
+
+| Path | Purpose |
+|------|---------|
+| `middleware/uploadMiddleware.js` | Multer (`tmp/` uploads). |
+| `routes/orderRoutes.js` | HTTP routes. |
+| `controllers/orderController.js` | Request/response only. |
+| `services/orderIngestionService.js` | Orchestrates GCS upload + CSV ingest. |
+| `services/uploadService.js` | GCS client calls. |
+| `services/parseService.js` | Stream CSV, validate, batched inserts. |
+| `services/shardService.js` | Shard index from `customer_id`. |
+| `repositories/orderRepository.js` | Sequelize reads + order count by shard database name. |
+| `config/` | DB shards, GCS bucket. |
+| `models/order.js` | Sequelize `Order` model (per shard). |
+| `utils/logger.js` | Winston logging. |
+| `schema/schema.sql` | Reference DDL. |
 
 ---
 
@@ -87,7 +119,7 @@ Example:
 curl -X POST http://localhost:3000/upload-orders -F "file=@orders.csv"
 ```
 
-Optional endpoints: `GET /orders/:orderId`, `GET /orders?customerId=<id>`, `GET /health`.
+Optional endpoints: `GET /orders/:orderId`, `GET /orders?customerId=<id>`, **`GET /orders/count-by-database?database=`** — `database` may be the **Postgres DB name** from your URL (e.g. `orders_shard_1`), the literal **`DB_SHARD_1_URL`**-style key, or a **numeric shard index** `0`–`3`. Response: `{ database, shardIndex, count }`.
 
 ---
 
@@ -109,7 +141,7 @@ Malformed rows are skipped, included in `failed`, and written to logs (`Invalid 
 
 ## Logging and errors
 
-Upload start/end, batch progress, processing summary, and failed/skipped rows are logged (Winston → console and `logs/`). Upload, parse, and database failures surface as errors in logs and typically **`500`** from `POST /upload-orders` with a short message in the body.
+Upload / ingestion lifecycle, batch progress, processing summary, and failed/skipped rows are logged (Winston → console and `logs/`). Upload, parse, and database failures surface as errors in logs and typically **`500`** from `POST /upload-orders` with a short message in the body.
 
 ---
 
@@ -118,5 +150,6 @@ Upload start/end, batch progress, processing summary, and failed/skipped rows ar
 - **CSV only** — simpler streaming path than Excel for the target size.
 - **Four shards via env URLs** — clear routing; not the same as Postgres native partitioning, but matches “multiple databases + routing.”
 - **`ignoreDuplicates` on bulk insert** — duplicate `order_id` in a shard does not fail the whole batch; adjust if you need strict idempotency.
+- **Layering** — HTTP (`controllers` + `routes`), uploads (`middleware`), ingestion orchestration (`orderIngestionService`), persistence (`repositories` + `parseService` for writes), and infra (`config`).
 
 ---
